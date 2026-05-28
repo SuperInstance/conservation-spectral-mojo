@@ -1,0 +1,7 @@
+[project]
+name = "conservation-spectral-mojo"
+version = "0.1.0"
+description = "Conservation Spectral SDK — SIMD-accelerated spectral graph analysis in Mojo"
+authors = ["SuperInstance"]
+
+[dependencies]
