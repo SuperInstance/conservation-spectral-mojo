@@ -161,3 +161,5 @@ This Mojo implementation covers all core modules from the Python SDK:
 ## License
 
 MIT
+
+Part of the [SuperInstance OpenConstruct](https://github.com/SuperInstance/OpenConstruct) ecosystem.
