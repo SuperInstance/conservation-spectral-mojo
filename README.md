@@ -2,6 +2,13 @@
 
 > SIMD-accelerated spectral graph analysis for conservation law detection, written in [Mojo](https://www.modular.com/mojo).
 
+> **On-box status (2026-10-01, Mojo 1.2.0.dev2026100105):** construction layer
+> verified bit-exact vs numpy; **eigen layer booked-defective** (wrong/NaN
+> eigenvalues — diagnosed, intentionally not fixed). See
+> [docs/USERMANUAL.md](docs/USERMANUAL.md) before trusting any eigen-derived
+> number. The code snippets below show the ORIGINAL pre-port API (`fn`, `@value`,
+> `UnsafePointer`) and no longer match the ported source.
+
 A from-scratch Mojo port of [conservation-spectral-python](https://github.com/SuperInstance/conservation-spectral-python), leveraging Mojo's unique systems-level features for maximum performance.
 
 ## Why Mojo?

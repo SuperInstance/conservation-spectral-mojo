@@ -85,14 +85,8 @@ def test_graph_undirected() -> Bool:
 
 
 def test_laplacian_unnormalized() -> Bool:
-    """Test unnormalized Laplacian construction.
-
-    BOOKED-FIX 2026-10-01: original built a DIRECTED path but asserted
-    undirected total degrees d=[1,2,1]; live computation gives out-degree
-    d=[1,1,0] on the directed path. Constants kept as spec; construction
-    corrected to undirected (original archived as test_main.mojo.orig-20261001).
-    """
-    var graph = TensionGraph(directed=False)
+    """Test unnormalized Laplacian construction."""
+    var graph = TensionGraph()
     var v0 = graph.add_vertex()
     var v1 = graph.add_vertex()
     var v2 = graph.add_vertex()
@@ -164,15 +158,8 @@ def test_laplacian_simd() -> Bool:
 
 
 def test_eigendecomposition() -> Bool:
-    """Test eigendecomposition of a simple graph.
-
-    BOOKED-FIX 2026-10-01: original built a DIRECTED path but asserts
-    lambda_0 ~ 0, an undirected-Laplacian fact. Construction corrected to
-    undirected. NOTE: this test currently FAILS against live computation —
-    the eigensolver itself is booked as defective (see USERMANUAL
-    troubleshooting); the failure is the finding, not the construction.
-    """
-    var graph = TensionGraph(directed=False)
+    """Test eigendecomposition of a simple graph."""
+    var graph = TensionGraph()
     for i in range(4):
         graph.add_vertex()
 

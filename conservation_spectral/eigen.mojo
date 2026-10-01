@@ -2,54 +2,58 @@
 
 Implements the symmetric QR algorithm with Wilkinson shifts for
 eigendecomposition of Laplacian matrices. Pure Mojo, no Python dependencies.
+
+Mojo port (verified on-box 2026-10-01): Pointer[Float64, MutUntrackedOrigin],
+alloc[Float64](n), __deinit__(deinit self).
 """
 
-from collections.dynamic_vector import DynamicVector
-from .laplacian import Laplacian
+from std import time
+from std.math import sqrt
+
+from conservation_spectral.laplacian import Laplacian
 
 
-@value
 struct EigenDecomposition:
     """Result of eigendecomposition of a Laplacian."""
     var n: Int
-    var eigenvalues: UnsafePointer[Float64]    # (n,) sorted ascending
-    var eigenvectors: UnsafePointer[Float64]   # (n, n) columns = eigenvectors
-    var laplacian_type: StringLiteral
+    var eigenvalues: Pointer[Float64, MutUntrackedOrigin]    # (n,) sorted ascending
+    var eigenvectors: Pointer[Float64, MutUntrackedOrigin]   # (n, n) columns = eigenvectors
+    var laplacian_type: String
     var _owned: Bool
 
-    fn __init__(
-        inout self,
+    def __init__(
+        out self,
         n: Int,
         laplacian_type: StringLiteral = "symmetric_normalized",
     ):
         self.n = n
         self.laplacian_type = laplacian_type
         self._owned = True
-        self.eigenvalues = UnsafePointer[Float64].alloc(n)
-        self.eigenvectors = UnsafePointer[Float64].alloc(n * n)
+        self.eigenvalues = alloc[Float64](n)
+        self.eigenvectors = alloc[Float64](n * n)
         for i in range(n):
-            self.eigenvalues.store(i, 0.0)
+            self.eigenvalues.unsafe_store(i, 0.0)
         for i in range(n * n):
-            self.eigenvectors.store(i, 0.0)
+            self.eigenvectors.unsafe_store(i, 0.0)
 
-    fn __del__(owned self):
+    def __deinit__(deinit self):
         if self._owned:
-            self.eigenvalues.free()
-            self.eigenvectors.free()
+            self.eigenvalues.unsafe_free()
+            self.eigenvectors.unsafe_free()
 
-    fn num_vectors(self) -> Int:
+    def num_vectors(self) -> Int:
         return self.n
 
-    fn num_vertices(self) -> Int:
+    def num_vertices(self) -> Int:
         return self.n
 
-    fn get_eigenvector(self, k: Int) -> UnsafePointer[Float64]:
+    def get_eigenvector(self, k: Int) -> Pointer[Float64, MutUntrackedOrigin]:
         """Get pointer to the k-th eigenvector (column k)."""
-        return self.eigenvectors + k * self.n
+        return self.eigenvectors.unsafe_offset(k * self.n)
 
 
-fn eigendecompose(
-    owned lap: Laplacian,
+def eigendecompose(
+    lap: Laplacian,
     num_vectors: Int = 0,
     laplacian_type: StringLiteral = "symmetric_normalized",
 ) -> EigenDecomposition:
@@ -66,123 +70,123 @@ fn eigendecompose(
     Returns:
         EigenDecomposition with eigenvalues sorted ascending.
     """
-    let n = lap.n
+    var n = lap.n
     var eigen = EigenDecomposition(n, laplacian_type)
 
     # Copy Laplacian matrix into a working buffer A (n×n)
-    var A = UnsafePointer[Float64].alloc(n * n)
+    var A = alloc[Float64](n * n)
     for i in range(n * n):
-        A.store(i, lap.matrix.load(i))
+        A.unsafe_store(i, lap.matrix.unsafe_load(i))
 
     # Symmetrize to avoid numerical issues: A = (A + A^T) / 2
     for i in range(n):
         for j in range(i + 1, n):
-            let avg = (A.load(i * n + j) + A.load(j * n + i)) / 2.0
-            A.store(i * n + j, avg)
-            A.store(j * n + i, avg)
+            var avg = (A.unsafe_load(i * n + j) + A.unsafe_load(j * n + i)) / 2.0
+            A.unsafe_store(i * n + j, avg)
+            A.unsafe_store(j * n + i, avg)
 
     # Initialize eigenvector matrix as identity
     for i in range(n):
         for j in range(n):
-            eigen.eigenvectors.store(i * n + j, 1.0 if i == j else 0.0)
+            eigen.eigenvectors.unsafe_store(i * n + j, 1.0 if i == j else 0.0)
 
     # --- Tridiagonalization via Householder reflections ---
     # Reduce A to tridiagonal form T = Q^T A Q
-    var v = UnsafePointer[Float64].alloc(n)
-    var p = UnsafePointer[Float64].alloc(n)
+    var v = alloc[Float64](n)
+    var p = alloc[Float64](n)
 
     for k in range(n - 2):
         # Extract column below diagonal
         var sigma: Float64 = 0.0
         for i in range(k + 2, n):
-            sigma += A.load(i * n + k) * A.load(i * n + k)
+            sigma += A.unsafe_load(i * n + k) * A.unsafe_load(i * n + k)
 
-        let alpha = A.load((k + 1) * n + k)
-        let r = sqrt(alpha * alpha + sigma)
+        var alpha = A.unsafe_load((k + 1) * n + k)
+        var r = sqrt(alpha * alpha + sigma)
         if r < 1e-15:
             continue
 
-        let sign = 1.0 if alpha >= 0.0 else -1.0
-        let v0 = alpha + sign * r
+        var sign = 1.0 if alpha >= 0.0 else -1.0
+        var v0 = alpha + sign * r
         var v_norm_sq = v0 * v0
-        v.store(k + 1, v0)
+        v.unsafe_store(k + 1, v0)
         for i in range(k + 2, n):
-            let val = A.load(i * n + k)
-            v.store(i, val)
+            var val = A.unsafe_load(i * n + k)
+            v.unsafe_store(i, val)
             v_norm_sq += val * val
 
         if v_norm_sq < 1e-30:
             continue
 
-        let inv_v_norm_sq = 1.0 / v_norm_sq
+        var inv_v_norm_sq = 1.0 / v_norm_sq
 
         # p = A * v * (2 / v_norm_sq)
         for i in range(n):
             var dot: Float64 = 0.0
             for j in range(k + 1, n):
-                dot += A.load(i * n + j) * v.load(j)
-            p.store(i, 2.0 * dot * inv_v_norm_sq)
+                dot += A.unsafe_load(i * n + j) * v.unsafe_load(j)
+            p.unsafe_store(i, 2.0 * dot * inv_v_norm_sq)
 
         # beta = v^T * p / 2
         var beta: Float64 = 0.0
         for i in range(k + 1, n):
-            beta += v.load(i) * p.load(i)
+            beta += v.unsafe_load(i) * p.unsafe_load(i)
         beta /= 2.0
 
         # q = p - beta * v
-        var q = UnsafePointer[Float64].alloc(n)
+        var q = alloc[Float64](n)
         for i in range(n):
-            q.store(i, p.load(i) - beta * v.load(i))
+            q.unsafe_store(i, p.unsafe_load(i) - beta * v.unsafe_load(i))
 
         # A = A - v * q^T - q * v^T  (only update lower-right submatrix)
         for i in range(k + 1, n):
             for j in range(k + 1, n):
-                let val = A.load(i * n + j) - v.load(i) * q.load(j) - q.load(i) * v.load(j)
-                A.store(i * n + j, val)
-                A.store(j * n + i, val)  # keep symmetric
+                var val = A.unsafe_load(i * n + j) - v.unsafe_load(i) * q.unsafe_load(j) - q.unsafe_load(i) * v.unsafe_load(j)
+                A.unsafe_store(i * n + j, val)
+                A.unsafe_store(j * n + i, val)  # keep symmetric
 
         # Update eigenvectors: Q = Q * (I - 2 * v * v^T / v_norm_sq)
         for i in range(n):
             var dot: Float64 = 0.0
             for j in range(k + 1, n):
-                dot += eigen.eigenvectors.load(i * n + j) * v.load(j)
-            let coeff = 2.0 * dot * inv_v_norm_sq
+                dot += eigen.eigenvectors.unsafe_load(i * n + j) * v.unsafe_load(j)
+            var coeff = 2.0 * dot * inv_v_norm_sq
             for j in range(k + 1, n):
-                let old = eigen.eigenvectors.load(i * n + j)
-                eigen.eigenvectors.store(i * n + j, old - coeff * v.load(j))
+                var old = eigen.eigenvectors.unsafe_load(i * n + j)
+                eigen.eigenvectors.unsafe_store(i * n + j, old - coeff * v.unsafe_load(j))
 
-        q.free()
+        q.unsafe_free()
 
-    v.free()
-    p.free()
+    v.unsafe_free()
+    p.unsafe_free()
 
     # --- Symmetric QR algorithm on the tridiagonal matrix ---
     # Extract diagonal and sub-diagonal
-    var d = UnsafePointer[Float64].alloc(n)     # diagonal
-    var e = UnsafePointer[Float64].alloc(n - 1) # sub-diagonal
+    var d = alloc[Float64](n)     # diagonal
+    var e = alloc[Float64](n - 1 if n > 0 else 1)  # sub-diagonal
 
     for i in range(n):
-        d.store(i, A.load(i * n + i))
+        d.unsafe_store(i, A.unsafe_load(i * n + i))
     for i in range(n - 1):
-        e.store(i, A.load((i + 1) * n + i))
+        e.unsafe_store(i, A.unsafe_load((i + 1) * n + i))
 
-    A.free()
+    A.unsafe_free()
 
     # QR iterations with Wilkinson shift
-    let max_iter = 100 * n
-    var iter = 0
+    var max_iter = 100 * n
+    var n_iter = 0
     var m = n  # active size
 
-    while m > 1 and iter < max_iter:
-        iter += 1
+    while m > 1 and n_iter < max_iter:
+        n_iter += 1
 
         # Find the largest unreduced submatrix [l..m-1]
         var l = m - 1
         while l > 0:
-            let off = abs(e.load(l - 1))
-            let diag_sum = abs(d.load(l - 1)) + abs(d.load(l))
+            var off = abs(e.unsafe_load(l - 1))
+            var diag_sum = abs(d.unsafe_load(l - 1)) + abs(d.unsafe_load(l))
             if off <= 1e-14 * diag_sum:
-                e.store(l - 1, 0.0)
+                e.unsafe_store(l - 1, 0.0)
                 break
             l -= 1
 
@@ -191,80 +195,78 @@ fn eigendecompose(
             continue
 
         # Wilkinson shift
-        let dd = (d.load(m - 2) - d.load(m - 1)) / 2.0
-        let ee = e.load(m - 2) * e.load(m - 2)
-        let sign_dd = 1.0 if dd >= 0.0 else -1.0
-        let mu = d.load(m - 1) - ee / (dd + sign_dd * sqrt(dd * dd + ee))
+        var dd = (d.unsafe_load(m - 2) - d.unsafe_load(m - 1)) / 2.0
+        var ee = e.unsafe_load(m - 2) * e.unsafe_load(m - 2)
+        var sign_dd = 1.0 if dd >= 0.0 else -1.0
+        var mu = d.unsafe_load(m - 1) - ee / (dd + sign_dd * sqrt(dd * dd + ee))
 
-        var x = d.load(l) - mu
-        var z = e.load(l)
+        var x = d.unsafe_load(l) - mu
+        var z = e.unsafe_load(l)
 
         for k in range(l, m - 1):
             # Givens rotation to zero out z
-            let r = sqrt(x * x + z * z)
+            var r = sqrt(x * x + z * z)
             if r < 1e-30:
                 continue
-            let c = x / r
-            let s = -z / r
+            var c = x / r
+            var s = -z / r
 
             # Update tridiagonal
             if k > l:
-                e.store(k - 1, r)
+                e.unsafe_store(k - 1, r)
 
-            let d_k = d.load(k)
-            let d_k1 = d.load(k + 1)
-            let e_k = e.load(k)
+            var d_k = d.unsafe_load(k)
+            var d_k1 = d.unsafe_load(k + 1)
+            var e_k = e.unsafe_load(k)
 
-            let h = d_k1 - d_k + e_k * s * (2.0 * c * e_k / r + s)
-            # Simpler update:
-            let w = c * c * d_k + s * s * d_k1 - 2.0 * c * s * e_k
-            let w1 = s * s * d_k + c * c * d_k1 + 2.0 * c * s * e_k
+            # Rotation update of d[k], d[k+1]
+            var w = c * c * d_k + s * s * d_k1 - 2.0 * c * s * e_k
+            var w1 = s * s * d_k + c * c * d_k1 + 2.0 * c * s * e_k
 
-            d.store(k, w)
-            d.store(k + 1, w1)
+            d.unsafe_store(k, w)
+            d.unsafe_store(k + 1, w1)
 
             if k < m - 2:
-                let new_e = c * e.load(k + 1) + s * d.load(k + 1)  # approximate
-                e.store(k, c * e_k + s * (d_k1 - d.load(k + 1)))
-                e.store(k + 1, -s * e_k + c * e.load(k + 1))
-                x = e.load(k)
-                z = s * d.load(k + 1)
+                e.unsafe_store(k, c * e_k + s * (d_k1 - w1))
+                e.unsafe_store(k + 1, -s * e_k + c * e.unsafe_load(k + 1))
+                x = e.unsafe_load(k)
+                z = s * w1
 
             # Update eigenvectors
             for i in range(n):
-                let v1 = eigen.eigenvectors.load(i * n + k)
-                let v2 = eigen.eigenvectors.load(i * n + k + 1)
-                eigen.eigenvectors.store(i * n + k, c * v1 - s * v2)
-                eigen.eigenvectors.store(i * n + k + 1, s * v1 + c * v2)
+                var v1 = eigen.eigenvectors.unsafe_load(i * n + k)
+                var v2 = eigen.eigenvectors.unsafe_load(i * n + k + 1)
+                eigen.eigenvectors.unsafe_store(i * n + k, c * v1 - s * v2)
+                eigen.eigenvectors.unsafe_store(i * n + k + 1, s * v1 + c * v2)
 
         # Check convergence
-        if abs(e.load(m - 2)) < 1e-14 * (abs(d.load(m - 2)) + abs(d.load(m - 1))):
-            e.store(m - 2, 0.0)
+        if abs(e.unsafe_load(m - 2)) < 1e-14 * (abs(d.unsafe_load(m - 2)) + abs(d.unsafe_load(m - 1))):
+            e.unsafe_store(m - 2, 0.0)
             m -= 1
 
     # Store eigenvalues from diagonal
     for i in range(n):
-        eigen.eigenvalues.store(i, d.load(i))
+        eigen.eigenvalues.unsafe_store(i, d.unsafe_load(i))
 
     # Sort eigenvalues and eigenvectors ascending
     # Simple selection sort (fine for typical graph sizes)
     for i in range(n - 1):
         var min_idx = i
         for j in range(i + 1, n):
-            if eigen.eigenvalues.load(j) < eigen.eigenvalues.load(min_idx):
+            if eigen.eigenvalues.unsafe_load(j) < eigen.eigenvalues.unsafe_load(min_idx):
                 min_idx = j
         if min_idx != i:
             # Swap eigenvalues
-            let tmp_eval = eigen.eigenvalues.load(i)
-            eigen.eigenvalues.store(i, eigen.eigenvalues.load(min_idx))
-            eigen.eigenvalues.store(min_idx, tmp_eval)
+            var tmp_eval = eigen.eigenvalues.unsafe_load(i)
+            eigen.eigenvalues.unsafe_store(i, eigen.eigenvalues.unsafe_load(min_idx))
+            eigen.eigenvalues.unsafe_store(min_idx, tmp_eval)
             # Swap eigenvector columns
             for row in range(n):
-                let tmp = eigen.eigenvectors.load(row * n + i)
-                eigen.eigenvectors.store(row * n + i, eigen.eigenvectors.load(row * n + min_idx))
-                eigen.eigenvectors.store(row * n + min_idx, tmp)
+                var tmp = eigen.eigenvectors.unsafe_load(row * n + i)
+                eigen.eigenvectors.unsafe_store(row * n + i, eigen.eigenvectors.unsafe_load(row * n + min_idx))
+                eigen.eigenvectors.unsafe_store(row * n + min_idx, tmp)
 
-    d.free()
-    e.free()
+    d.unsafe_free()
+    e.unsafe_free()
 
-    return eigen
+    return eigen^
